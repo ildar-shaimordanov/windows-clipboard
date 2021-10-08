@@ -14,6 +14,10 @@
  * https://github.com/sindresorhus/win-clipboard/tree/v0.2.0
  * MIT License
  *
+ * Also I found another good C implementation:
+ * https://github.com/neubaner/clipboard
+ *This is free and unencumbered software released into the public domain.
+ *
  * Look closer if it can be adapted for BusyBox:
  * https://github.com/rmyorston/busybox-w32
  * Licensed under GPLv2 or later, see file LICENSE in this source tree.
@@ -178,8 +182,11 @@ void getclip(int conv_mode, int cb_format) {
 
 	char *pData = (char *)GlobalLock(hData);
 
+	DWORD cbSize = GlobalSize(hData) - sizeof(wchar_t);
+
 	DWORD ch;
-	while ( ch = *pData++ ) {
+	while ( cbSize-- ) {
+		ch = *pData++;
 		if ( ch == '\r' && conv_mode != CM_AS_IS ) {
 			continue;
 		}
