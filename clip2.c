@@ -12,8 +12,9 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <Windows.h>
+#include <windows.h>
 #include <winuser.h>
+
 
 #define HELP \
 	"[ clp [OPTIONS] | ] ... [ | clp [OPTIONS] ]\n" \
@@ -23,116 +24,101 @@
 	"OPTIONS\n" \
 	"\t-u\tdos2unix\n" \
 	"\t-d\tunix2dos\n" \
-	"\t-U\tunicode format  (default)\n" \
+	"\t-U\tunicode format (default)\n" \
 	"\t-T\tplain text format\n"
 
 
-int warn(char *str) {
-	if ( str == NULL ) {
-		str = "Something wrong\n";
-	}
-	fprintf(stderr, "%s", str);
-}
-
-int die(char *str) {
-	if ( str == NULL ) {
-		str = "Died!\n";
-	}
-	warn(str);
-	exit(255);
-}
-
-int print(char *str) {
-	printf("%s", str);
-}
-
-
 enum {
-	CM_AS_IS	= 0
-,	CM_UNIX2DOS	= 1
-,	CM_DOS2UNIX	= 2
+	CM_AS_IS	= 0,
+	CM_UNIX2DOS	= 1,
+	CM_DOS2UNIX	= 2,
 };
 
 
-#define BUFFER_SIZE	0x10000
+#define CHUNK_SIZE	0x10000
 
-typedef struct node_tag {
-	char buffer[BUFFER_SIZE];
+
+typedef struct chunk_tag {
+	char buffer[CHUNK_SIZE];
 	int capacity;
-	struct node_tag *next;
-} node;
+	struct chunk_tag *next;
+} chunk;
 
-void* nodealloc() {
-	node *buf = malloc(sizeof(node));
+
+void* chunkalloc() {
+	chunk *buf = malloc(sizeof(chunk));
 	if ( buf == NULL ) {
 		fprintf(stderr, "Memory allocation error\n");
-		exit(255);
+		exit(1);
 	}
+	buf->capacity = 0;
+	buf->next = NULL;
 	return buf;
 }
 
-int setclip(int conv_mode, int io_mode, int cb_format) {
-	_setmode(_fileno(stdin), io_mode);
 
-	node *bufferList = nodealloc();
-	bufferList->capacity = 0;
-	node *head = bufferList;
+int setclip(int conv_mode, int cb_format) {
+	_setmode(_fileno(stdin), _O_BINARY);
+
+	chunk *chunks = chunkalloc();
+	chunk *head = chunks;
 
 	DWORD cbSize = 0;
-	DWORD count;
-	char buffer[BUFFER_SIZE >> 1];
-	while ( ( count = fread(buffer, 1, sizeof(buffer), stdin) ) != 0 ) {
-		DWORD j = 0;
-		for (DWORD i = 0; i < count; i++) {
+	DWORD readCount;
+	char buffer[CHUNK_SIZE >> 1];
+
+	while ( readCount = fread(buffer, 1, sizeof(buffer), stdin) ) {
+		DWORD copyCount = 0;
+		for (DWORD i = 0; i < readCount; i++) {
 			char ch = buffer[i];
 			if ( ch == '\r' && conv_mode != CM_AS_IS ) {
 				continue;
 			}
 			if ( ch == '\n' && conv_mode == CM_UNIX2DOS ) {
-				head->buffer[j++] = '\r';
+				head->buffer[copyCount++] = '\r';
 			}
-			head->buffer[j++] = ch;
+			head->buffer[copyCount++] = ch;
 		}
-		count = j;
 
-		cbSize += count;
+		cbSize += copyCount;
+		head->capacity = copyCount;
 
-		head->capacity = count;
-		head->next = nodealloc();
-		head->next->capacity = 0;
-
+		head->next = chunkalloc();
 		head = head->next;
 	}
 
 	if ( ferror(stdin) ) {
-		fprintf(stderr, "STDIN reading failure\n");
-		exit(255);
+		fprintf(stderr, "STDIN reading error\n");
+		exit(1);
 	}
 
-	HANDLE hgMem = GlobalAlloc(GMEM_MOVEABLE, cbSize + sizeof(char));
-	LPBYTE lpData = GlobalLock(hgMem);
+	HANDLE hData = GlobalAlloc(GMEM_MOVEABLE, cbSize + sizeof(wchar_t));
+	LPBYTE pData = GlobalLock(hData);
 
 	cbSize = 0;
-	head = bufferList;
+	head = chunks;
 	while ( head->capacity != 0 ) {
-		CopyMemory(lpData + cbSize, head->buffer, head->capacity);
+		CopyMemory(pData + cbSize, head->buffer, head->capacity);
 		cbSize += head->capacity;
-		node *prev = head;
+		chunk *prev = head;
 		head = head->next;
 		free(prev);
 	}
 
-	GlobalUnlock(hgMem);
+	GlobalUnlock(hData);
 
 	OpenClipboard(NULL);
 	EmptyClipboard();
-	SetClipboardData(cb_format, hgMem);
+	SetClipboardData(cb_format, hData);
 	CloseClipboard();
 
-	GlobalFree(hgMem);
+	GlobalFree(hData);
 }
 
-int getclip(int conv_mode, int io_mode, int cb_format) {
+
+int getclip(int conv_mode, int cb_format) {
+	_setmode(_fileno(stdout), _O_BINARY);
+
 	OpenClipboard(NULL);
 
 	HANDLE hData = GetClipboardData(cb_format);
@@ -140,12 +126,10 @@ int getclip(int conv_mode, int io_mode, int cb_format) {
 		return 0;
 	}
 
-	char *pText = (char *)GlobalLock(hData);
-
-	_setmode(_fileno(stdout), io_mode);
+	char *pData = (char *)GlobalLock(hData);
 
 	char ch;
-	while ( ( ch = *pText++ ) != 0 ) {
+	while ( ch = *pData++ ) {
 		if ( ch == '\r' && conv_mode != CM_AS_IS ) {
 			continue;
 		}
@@ -163,36 +147,34 @@ int getclip(int conv_mode, int io_mode, int cb_format) {
 
 int main(int argc, char **argv) {
 	int conv_mode = CM_AS_IS;
-	int io_mode = _O_BINARY;
 	int cb_format = CF_UNICODETEXT;
 
 	for (int i = 0; i < argc; i++) {
-		if ( strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0 ) {
+		char *arg = argv[i];
+		if ( strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0 ) {
 			printf(HELP);
 			return 0;
 		}
-		if ( strcmp(argv[i], "-u") == 0 ) {
+		if ( strcmp(arg, "-u") == 0 ) {
 			conv_mode = CM_DOS2UNIX;
 		}
-		if ( strcmp(argv[i], "-d") == 0 ) {
+		if ( strcmp(arg, "-d") == 0 ) {
 			conv_mode = CM_UNIX2DOS;
 		}
-		if ( strcmp(argv[i], "-U") == 0 ) {
-			io_mode = _O_BINARY;
+		if ( strcmp(arg, "-U") == 0 ) {
 			cb_format = CF_UNICODETEXT;
 		}
-		if ( strcmp(argv[i], "-T") == 0 ) {
-			io_mode = _O_BINARY;
+		if ( strcmp(arg, "-T") == 0 ) {
 			cb_format = CF_TEXT;
 		}
 	}
 
 	if ( ! _isatty(_fileno(stdin)) ) {
 		// ... | clp
-		setclip(conv_mode, io_mode, cb_format);
+		setclip(conv_mode, cb_format);
 	} else {
 		// clp | ...
 		// or simply output the clipboard
-		getclip(conv_mode, io_mode, cb_format);
+		getclip(conv_mode, cb_format);
 	}
 }
