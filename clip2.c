@@ -14,9 +14,11 @@
  * https://github.com/sindresorhus/win-clipboard/tree/v0.2.0
  * MIT License
  *
- * Also I found another good C implementation:
+ * Also I found another good C implementations:
  * https://github.com/neubaner/clipboard
- *This is free and unencumbered software released into the public domain.
+ * This is free and unencumbered software released into the public domain.
+ * https://github.com/DoumanAsh/lazy-winapi.c
+ * MIT License
  *
  * Look closer if it can be adapted for BusyBox:
  * https://github.com/rmyorston/busybox-w32
