@@ -35,7 +35,7 @@
 
 
 #define HELP \
-	"[ clp [OPTIONS] | ] ... [ | clp [OPTIONS] ]\n" \
+	"[ clip2 [OPTIONS] | ] ... [ | clip2 [OPTIONS] ]\n" \
 	"\n" \
 	"Copy data from and/or to the clipboard\n" \
 	"\n" \
@@ -236,10 +236,10 @@ int main(int argc, char **argv) {
 	}
 
 	if ( ! _isatty(_fileno(stdin)) ) {
-		// ... | clp
+		// ... | clip2
 		setclip(conv_mode, cb_format);
 	} else {
-		// clp | ...
+		// clip2 | ...
 		// or simply output the clipboard
 		getclip(conv_mode, cb_format);
 	}
