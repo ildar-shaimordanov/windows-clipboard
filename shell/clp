@@ -1,0 +1,111 @@
+#!/bin/sh
+
+# =========================================================================
+#
+# Simplify handling with Windows clipboard under Cygwin, MSys, BusyBox etc.
+#
+# Take data from clipboard and do something
+# clp | ...
+#
+# Do something with data and keep in clipboard
+# ... | clp
+#
+# =========================================================================
+#
+# Copyright 2022 Ildar Shaimordanov
+# MIT License
+#
+# =========================================================================
+#
+# "getclip" and "putclip" are the parts of the "cygutils-extra" package
+# and usually are not installed by default. If one of them is preseneted
+# in the system, it will be used. Otherwise, we emulate them with shell
+# functions of the same names.
+#
+# Assuming that this script can be used in different environments sucn
+# as BusyBox, Cygwin or MSys, we have to exactly distinguish where the
+# script is running. In my opinion, detecting the character device
+# "/dev/clipboard" is the most reliable way that can help to differ
+# Cygwin, MSys from others such as BusyBox.
+#
+# If "/dev/clipboard" exists, it will be used for handling with data in
+# clipboard. In other cases we can use PowerShell for getting data from
+# clipboard and "clip", the standard tool, for putting to clipboard.
+#
+# There is potential risk when PowerShell is not installed in the system
+# for some reasons. In this situation the script fails. We could bypass
+# this issue with JScript/VBScript but this implementation is expected
+# too complicated and is not 100% strong because of possible restrictions
+# in security policy and so on. We rely that PowerShell is installed on
+# the most of nowaday systems.
+#
+# =========================================================================
+
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]
+then
+	cat - <<HELP
+Usage: [ clp [-u|-d] | ] ... [ | clp [-u|-d] ]
+
+Copy data from and/or to the clipboard
+
+	-u		dos2unix
+	-d		unix2dos
+
+	-h, --help	Show this help and exit
+HELP
+	exit
+fi
+
+# =========================================================================
+
+__clp() {
+	case "$1" in
+	-u ) dos2unix ;;
+	-d ) unix2dos ;;
+	* ) cat - ;;
+	esac
+}
+
+if ! command -v getclip >/dev/null
+then
+	if [ -c /dev/clipboard ]
+	then
+		getclip() {
+			__clp "$@" </dev/clipboard
+		}
+	else
+		getclip() {
+			powershell -NoLogo -NoProfile -Command \
+			'Get-Clipboard -Raw | Write-Host -NoNewLine' \
+			| __clp "$@"
+		}
+	fi
+fi
+
+if ! command -v putclip >/dev/null
+then
+	if [ -c /dev/clipboard ]
+	then
+		putclip() {
+			__clp "$@" >/dev/clipboard
+		}
+	else
+		putclip() {
+			__clp "$@" | clip
+		}
+	fi
+fi
+
+if [ -t 0 ]
+then
+	# clp | ...
+	# or simply output the clipboard
+	getclip "$@"
+else
+	# ... | clp
+	putclip "$@"
+fi
+
+# =========================================================================
+
+#EOF
